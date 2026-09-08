@@ -24,18 +24,18 @@ class TapeAction:
                 raise ValueError("action MOVE needs a delta input and no read/write values")
 
     @classmethod
-    def write(cls, read_value: str | None, write_value: str) -> "TapeAction":
+    def write_action(cls, read_value: str | None, write_value: str) -> "TapeAction":
         return cls(type=ActionType.WRITE, read=read_value, write=write_value)
 
     @classmethod
-    def move(cls, delta_value: int) -> "TapeAction":
+    def move_action(cls, delta_value: int) -> "TapeAction":
         return cls(type=ActionType.MOVE, delta=delta_value)
 
     def invert(self) -> "TapeAction":
         if self.type == ActionType.WRITE:
-            return TapeAction.write(read=self.write, write=self.read)
+            return TapeAction.write_action(read_value=self.write, write_value=self.read)
         else:
-            return TapeAction.move(delta=-self.delta)
+            return TapeAction.move_action(delta_value=-self.delta)
 
 
 @dataclass(frozen=True)
