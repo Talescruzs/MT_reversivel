@@ -6,6 +6,13 @@ class ActionType(Enum):
     WRITE = auto()
     MOVE = auto()
 
+class HistoryTapeSymbol(Enum):
+    START = "#"
+    TRANSITION = "T"
+    FINAL = "F"
+    END = ";"
+    BLANK = "_"
+
 @dataclass(frozen=True)
 class TapeAction:
     type: ActionType
@@ -37,7 +44,6 @@ class TapeAction:
         else:
             return TapeAction.move_action(delta_value=-self.delta)
 
-
 @dataclass(frozen=True)
 class Transition:
     state: str
@@ -65,3 +71,40 @@ class Transition:
                 raise ValueError(
                     f"fita {i}: expected={exp!r} não bate com actions[{i}].read={action.read!r}"
                 )
+
+@dataclass(frozen=True)
+class BennettTransition:
+    state: str
+    read: str | None
+    write: str | None
+    move: int
+    next_state: str
+
+    @staticmethod
+    def _move_symbol(delta: int) -> str:
+        if delta > 0:
+            return f"+{delta}"
+        if delta < 0:
+            return str(delta)
+        return "0"
+
+    def history_tokens(self) -> list[str]:
+        return [
+            HistoryTapeSymbol.START.value,
+            HistoryTapeSymbol.TRANSITION.value,
+            self.state,
+            self.read if self.read is not None else HistoryTapeSymbol.BLANK.value,
+            self.write if self.write is not None else HistoryTapeSymbol.BLANK.value,
+            self._move_symbol(self.move),
+            self.next_state,
+            HistoryTapeSymbol.END.value,
+        ]
+
+    @classmethod
+    def final_tokens(cls, state: str) -> list[str]:
+        return [
+            HistoryTapeSymbol.START.value,
+            HistoryTapeSymbol.FINAL.value,
+            state,
+            HistoryTapeSymbol.END.value,
+        ]
