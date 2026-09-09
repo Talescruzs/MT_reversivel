@@ -47,34 +47,6 @@ class TapeAction:
 @dataclass(frozen=True)
 class Transition:
     state: str
-    expected: tuple[str | None, ...] # tupla pra armazenar leituras da fita. None é o mesmo que "/" (não importa)
-    actions: tuple[TapeAction, ...] # ação de cada fita
-    next_state: str
-
-    def matches(self, current_state: str, scanned: tuple[str, ...]) -> bool:
-        if self.state != current_state:
-            return False 
-        for expected, seen in zip(self.expected, scanned):
-            if expected is not None and expected != seen:
-                return False
-        return True
-
-    def __post_init__(self):
-        if len(self.expected) != len(self.actions):
-            raise ValueError(
-                f"expected tem {len(self.expected)} posições, "
-                f"actions tem {len(self.actions)} — precisam ser iguais"
-            )
-
-        for i, (exp, action) in enumerate(zip(self.expected, self.actions)):
-            if exp != action.read:
-                raise ValueError(
-                    f"fita {i}: expected={exp!r} não bate com actions[{i}].read={action.read!r}"
-                )
-
-@dataclass(frozen=True)
-class BennettTransition:
-    state: str
     read: str | None
     write: str | None
     move: int

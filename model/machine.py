@@ -3,7 +3,7 @@ from __future__ import annotations
 from enum import Enum, auto
 
 from tape import Tape
-from transition import BennettTransition, HistoryTapeSymbol
+from transition import HistoryTapeSymbol, Transition
 
 
 class MachinePhase(Enum):
@@ -18,7 +18,7 @@ class TuringMachineReversive:
         self,
         input_string: str,
         initial_state: str = "q0",
-        transitions: list[BennettTransition] | None = None,
+        transitions: list[Transition] | None = None,
         final_states: set[str] | None = None
     ):
         self.tape1 = Tape()     #input tape
@@ -30,10 +30,10 @@ class TuringMachineReversive:
         self.phase = MachinePhase.FORWARD
         self.accepted = False
 
-        self.transitions = transitions if transitions is not None else []
-        self.final_states = final_states if final_states is not None else set()
+        self.transitions = list(transitions) if transitions is not None else []
+        self.final_states = set(final_states) if final_states is not None else set()
 
-        self._pending_transition: BennettTransition | None = None
+        self._pending_transition: Transition | None = None
         self._copy_index = 0
         self._history_tokens = 0
 
@@ -57,13 +57,10 @@ class TuringMachineReversive:
     def get_tape_contents(self):
         return self.tape1.get_tape(), self.tape2.get_tape(), self.tape3.get_tape()
 
-    def get_tape_histories(self):
-        return self.tape2.get_tape()
-
     def _current_input_symbol(self) -> str | None:
         return self.tape1.read()
 
-    def _find_transition(self) -> BennettTransition | None:
+    def _find_transition(self) -> Transition | None:
         scanned = self._current_input_symbol()
         for transition in self.transitions:
             if transition.state == self.state and transition.read == scanned:
@@ -87,14 +84,14 @@ class TuringMachineReversive:
             for _ in range(-delta):
                 tape.move_left()
 
-    def _append_history_record(self, kind: str, transition: BennettTransition | None = None) -> None:
+    def _append_history_record(self, kind: str, transition: Transition | None = None) -> None:
         if kind == "transition":
             if transition is None:
                 raise ValueError("transition precisa ser informada para registrar histórico")
 
             tokens = transition.history_tokens()
         elif kind == "final":
-            tokens = BennettTransition.final_tokens(self.state)
+            tokens = Transition.final_tokens(self.state)
         else:
             raise ValueError(f"tipo de histórico desconhecido: {kind!r}")
 
@@ -167,9 +164,11 @@ class TuringMachineReversive:
             return False
 
         while self.tape2.read() is None and self.tape2.get_position() > 0:
+            # move para esquerda até encontrar um símbolo válido ou chegar ao início da fita
             self.tape2.move_left()
 
         if self.tape2.read() != HistoryTapeSymbol.END.value:
+            # achou um símbolo válido, mas não é o marcador de fim de registro, então continua movendo para a esquerda
             while self.tape2.get_position() > 0 and self.tape2.read() != HistoryTapeSymbol.END.value:
                 self.tape2.move_left()
 
@@ -178,6 +177,7 @@ class TuringMachineReversive:
 
         record: list[str | None] = []
         while True:
+            # lê computação realizada da fita 2, armazena em record e apaga o símbolo lido da fita 2
             symbol = self.tape2.read()
             record.append(symbol)
             self.tape2.write(None)
@@ -200,6 +200,7 @@ class TuringMachineReversive:
             if state is None or read_symbol is None or move_symbol is None:
                 raise ValueError(f"registro de transição inválido: {record!r}")
 
+            # desfaz a transição, movendo a fita 1 para a esquerda ou direita, escrevendo o símbolo lido e voltando ao estado anterior
             move = int(move_symbol)
             self._move_tape(self.tape1, -move)
             self.tape1.write(read_symbol)
@@ -237,7 +238,6 @@ class TuringMachineReversive:
     def run(self, max_steps: int = 100) -> int:
         steps = 0
         while steps < max_steps and not self.has_finished() and self.step():
-            self.step()
             steps += 1
         return steps
 
@@ -248,9 +248,9 @@ if __name__ == "__main__":
     # fase 2: copia o resultado para a fita 3
     # fase 3: faz o retrace usando a fita 2
     transitions = [
-        BennettTransition("q0", "a", "x", 1, "q1"),
-        BennettTransition("q1", "b", "y", 1, "q2"),
-        BennettTransition("q2", "c", "z", 1, "q3"),
+        Transition("q0", "a", "x", 1, "q1"),
+        Transition("q1", "b", "y", 1, "q2"),
+        Transition("q2", "c", "z", 1, "q3"),
     ]
     final_states = {"q3"}
 
