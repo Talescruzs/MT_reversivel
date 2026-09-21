@@ -3,7 +3,8 @@ from __future__ import annotations
 from enum import Enum, auto
 
 from tape import Tape
-from transition import HistoryTapeSymbol, Transition
+from transition import Transition
+from state import State
 
 
 class MachinePhase(Enum):
@@ -14,13 +15,7 @@ class MachinePhase(Enum):
 
 
 class TuringMachineReversive:
-    def __init__(
-        self,
-        input_string: str,
-        initial_state: str = "q0",
-        transitions: list[Transition] | None = None,
-        final_states: set[str] | None = None
-    ):
+    def __init__(self, input_string: str, initial_state: State, states: list[State], transitions: list[Transition], final_states: set[State] | None = None):
         self.tape1 = Tape()     #input tape
         self.tape2 = Tape()     #history tape
         self.tape3 = Tape()     #output tape
@@ -30,13 +25,18 @@ class TuringMachineReversive:
         self.phase = MachinePhase.FORWARD
         self.accepted = False
 
+        self.states = list(states) if states is not None else []
         self.transitions = list(transitions) if transitions is not None else []
         self.final_states = set(final_states) if final_states is not None else set()
 
-        self._pending_transition: Transition | None = None
         self._copy_index = 0
         self._history_tokens = 0
 
+        self.atual_transition_index = 0
+
+        self._setup(input_string)
+
+    def _setup(self, input_string: str):
         # Carrega a entrada na fita 1 e volta o cabeçote para o início.
         for char in input_string:
             self.tape1.write(char)
@@ -62,10 +62,18 @@ class TuringMachineReversive:
 
     def _find_transition(self) -> Transition | None:
         scanned = self._current_input_symbol()
-        for transition in self.transitions:
-            if transition.state == self.state and transition.read == scanned:
+        transition = self.state.get_next_transition(scanned)
+        for ind_transition in self.transitions:
+            if ind_transition == transition:
+                self.atual_transition_index = self.transitions.index(transition)
                 return transition
         return None
+
+    def _state_by_name(self, name: str) -> State:
+        for state in self.states:
+            if state.name == name:
+                return state
+        raise ValueError(f"estado desconhecido no histórico: {name!r}")
 
     @staticmethod
     def _meaningful_length(tape: Tape) -> int:
@@ -84,62 +92,38 @@ class TuringMachineReversive:
             for _ in range(-delta):
                 tape.move_left()
 
-    def _append_history_record(self, kind: str, transition: Transition | None = None) -> None:
-        if kind == "transition":
-            if transition is None:
-                raise ValueError("transition precisa ser informada para registrar histórico")
-
-            tokens = transition.history_tokens()
-        elif kind == "final":
-            tokens = Transition.final_tokens(self.state)
-        else:
-            raise ValueError(f"tipo de histórico desconhecido: {kind!r}")
-
-        for token in tokens:
-            self.tape2.write(token)
-            self.tape2.move_right()
+    def _append_history_record(self) -> None:
+        self.tape2.write(self.atual_transition_index)
+        self.tape2.move_right()
 
         self._history_tokens += 1
 
     def _enter_copy_phase(self) -> None:
         self.phase = MachinePhase.COPY
         self._copy_index = 0
-        self._pending_transition = None
         self.accepted = True
 
     def _enter_retrace_phase(self) -> None:
         self.phase = MachinePhase.RETRACE
-        self._pending_transition = None
         if self._history_tokens > 0 and self.tape2.get_position() > 0:
             self.tape2.move_left()
 
     def _forward_step(self) -> bool:
-        if self._pending_transition is None:
-            transition = self._find_transition()
-            if transition is None:
-                if self.state in self.final_states:
-                    self._append_history_record("final")
-                    self._enter_copy_phase()
-                    return True
-                
+        transition = self._find_transition()
+        if transition is None:
+            if self.state in self.final_states:
+                self.phase = MachinePhase.COPY
+                self.accepted = True
+                return True
 
-                self.phase = MachinePhase.HALT
-                return False
+            self.phase = MachinePhase.HALT
+            self.accepted = False
+            return False
 
-            self._pending_transition = transition
-            self.tape1.write(transition.write)
-            self._append_history_record("transition", transition)
-            return True
-
-        transition = self._pending_transition
+        self.tape1.write(transition.write)
         self._move_tape(self.tape1, transition.move)
         self.state = transition.next_state
-        self._pending_transition = None
-
-        if self.state in self.final_states:
-            self._append_history_record("final")
-            self._enter_copy_phase()
-
+        self._append_history_record()
         return True
 
     def _copy_step(self) -> bool:
@@ -163,62 +147,24 @@ class TuringMachineReversive:
             self.phase = MachinePhase.HALT
             return False
 
-        while self.tape2.read() is None and self.tape2.get_position() > 0:
-            # move para esquerda até encontrar um símbolo válido ou chegar ao início da fita
+        while self.tape1.read() is None:
+            self.tape1.move_left()
+
+        while self.tape2.read() is None:
             self.tape2.move_left()
 
-        if self.tape2.read() != HistoryTapeSymbol.END.value:
-            # achou um símbolo válido, mas não é o marcador de fim de registro, então continua movendo para a esquerda
-            while self.tape2.get_position() > 0 and self.tape2.read() != HistoryTapeSymbol.END.value:
-                self.tape2.move_left()
+        record = self.tape2.read()
 
-        if self.tape2.read() != HistoryTapeSymbol.END.value:
-            raise ValueError("histórico da fita 2 terminou sem marcador de fim de registro")
-
-        record: list[str | None] = []
-        while True:
-            # lê computação realizada da fita 2, armazena em record e apaga o símbolo lido da fita 2
-            symbol = self.tape2.read()
-            record.append(symbol)
-            self.tape2.write(None)
-            if symbol == HistoryTapeSymbol.START.value:
-                break
-            if self.tape2.get_position() == 0:
-                break
-            self.tape2.move_left()
-
-        record.reverse()
-
-        if len(record) < 4 or record[0] != HistoryTapeSymbol.START.value or record[-1] != HistoryTapeSymbol.END.value:
+        if isinstance(record, int):
+            transition = self.transitions[record]
+            self.state = transition.next_state
+            self.tape1.write(transition.read)
+            self._move_tape(self.tape1, -transition.move)
+        else:
             raise ValueError(f"registro de histórico inválido: {record!r}")
 
-        tag = record[1]
-        if tag == HistoryTapeSymbol.FINAL.value:
-            self.state = record[2] if record[2] is not None else self.state
-        elif tag == HistoryTapeSymbol.TRANSITION.value:
-            state, read_symbol, _write_symbol, move_symbol, _next_state = record[2:7]
-            if state is None or read_symbol is None or move_symbol is None:
-                raise ValueError(f"registro de transição inválido: {record!r}")
-
-            # desfaz a transição, movendo a fita 1 para a esquerda ou direita, escrevendo o símbolo lido e voltando ao estado anterior
-            move = int(move_symbol)
-            self._move_tape(self.tape1, -move)
-            self.tape1.write(read_symbol)
-            self.state = state
-        else:
-            raise ValueError(f"marca de histórico desconhecida: {tag!r}")
-
+        self.tape2.move_left()
         self._history_tokens -= 1
-
-        if self._history_tokens == 0:
-            self.tape2 = Tape()
-            self.phase = MachinePhase.HALT
-            return True
-
-        if self.tape2.get_position() > 0:
-            self.tape2.move_left()
-
-        return True
 
     def step(self) -> bool:
         if self.phase is MachinePhase.HALT:
@@ -247,14 +193,31 @@ if __name__ == "__main__":
     # fase 1: escreve e anda
     # fase 2: copia o resultado para a fita 3
     # fase 3: faz o retrace usando a fita 2
-    transitions = [
-        Transition("q0", "a", "x", 1, "q1"),
-        Transition("q1", "b", "y", 1, "q2"),
-        Transition("q2", "c", "z", 1, "q3"),
+    states = [
+        State("q0", is_initial=True),
+        State("q1"),
+        State("q2"),
+        State("q3", is_final=True),
     ]
-    final_states = {"q3"}
+    transitions = [
+        Transition(states[0], "a", "x", 1, states[1]),
+        Transition(states[1], "b", "y", 1, states[2]),
+        Transition(states[2], "c", "z", 1, states[3]),
+    ]
+    states[0].transitions = [
+        transitions[0],
+    ]
+    states[1].transitions = [
+        transitions[1],
+    ]
+    states[2].transitions = [
+        transitions[2],
+    ]
+    states[3].transitions = []
 
-    machine = TuringMachineReversive("abc", "q0", transitions, final_states)
+    final_states = {states[3]}
+    
+    machine = TuringMachineReversive("abc", states[0], states, transitions, final_states)
 
     print("Antes:", machine.get_tape_contents())
     while not machine.has_finished():
@@ -262,7 +225,7 @@ if __name__ == "__main__":
         print("Passo:", machine.phase, machine.get_tape_contents())
 
     print("Depois:", machine.get_tape_contents())
-    print("Estado atual:", machine.state)
+    print("Estado atual:", machine.state.name)
     print("Fase atual:", machine.phase)
     print("Terminou a computação?", machine.has_finished())
     print("Foi aceita?", machine.is_accepted())
