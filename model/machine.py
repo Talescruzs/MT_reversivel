@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+import argparse
+import re
 from enum import Enum, auto
+from pathlib import Path
 
 from tape import Tape
 from transition import Transition
@@ -165,6 +168,12 @@ class TuringMachineReversive:
 
         self.tape2.move_left()
         self._history_tokens -= 1
+        if self._history_tokens == 0:
+            self.tape2 = Tape()
+            self.phase = MachinePhase.HALT
+            return False
+
+        return True
 
     def step(self) -> bool:
         if self.phase is MachinePhase.HALT:
@@ -188,44 +197,74 @@ class TuringMachineReversive:
         return steps
 
 
+def _parse_symbol(symbol: str) -> str | None:
+    return None if symbol == "B" else symbol
+
+
+def load_quintupla(path: str | Path) -> tuple[str, State, list[State], list[Transition], set[State]]:
+    lines = [line.strip() for line in Path(path).read_text(encoding="utf-8").splitlines() if line.strip()]
+    if len(lines) < 5:
+        raise ValueError("arquivo de quíntupla incompleto")
+
+    try:
+        number_of_states, _, _, number_of_transitions = map(int, lines[0].split())
+    except ValueError as error:
+        raise ValueError("o cabeçalho deve conter: estados alfabeto_entrada alfabeto_fita transições") from error
+
+    states = [State(name) for name in lines[1].split()]
+    if len(states) != number_of_states:
+        raise ValueError("a quantidade de estados não corresponde ao cabeçalho")
+    states_by_name = {state.name: state for state in states}
+
+    transition_pattern = re.compile(
+        r"^\(([^,]+),([^\)]+)\)=\(([^,]+),([^,]+),([LR])\)$"
+    )
+    transitions: list[Transition] = []
+    for line in lines[4:4 + number_of_transitions]:
+        match = transition_pattern.match(line.replace(" ", ""))
+        if match is None:
+            raise ValueError(f"transição inválida: {line!r}")
+
+        state_name, read, next_state_name, write, direction = match.groups()
+        try:
+            state = states_by_name[state_name]
+            next_state = states_by_name[next_state_name]
+        except KeyError as error:
+            raise ValueError(f"estado desconhecido na transição: {error.args[0]!r}") from error
+
+        transition = Transition(
+            state,
+            _parse_symbol(read),
+            _parse_symbol(write),
+            1 if direction == "R" else -1,
+            next_state,
+        )
+        state.add_transition(transition)
+        transitions.append(transition)
+
+    if len(transitions) != number_of_transitions:
+        raise ValueError("a quantidade de transições não corresponde ao cabeçalho")
+
+    final_states = {state for state in states if not state.transitions}
+    input_string = lines[4 + number_of_transitions]
+    states[0].is_initial = True
+    return input_string, states[0], states, transitions, final_states
+
+
 if __name__ == "__main__":
-    # Exemplo mínimo no formato de Bennett:
-    # fase 1: escreve e anda
-    # fase 2: copia o resultado para a fita 3
-    # fase 3: faz o retrace usando a fita 2
-    states = [
-        State("q0", is_initial=True),
-        State("q1"),
-        State("q2"),
-        State("q3", is_final=True),
-    ]
-    transitions = [
-        Transition(states[0], "a", "x", 1, states[1]),
-        Transition(states[1], "b", "y", 1, states[2]),
-        Transition(states[2], "c", "z", 1, states[3]),
-    ]
-    states[0].transitions = [
-        transitions[0],
-    ]
-    states[1].transitions = [
-        transitions[1],
-    ]
-    states[2].transitions = [
-        transitions[2],
-    ]
-    states[3].transitions = []
+    parser = argparse.ArgumentParser(description="Executa uma máquina de Turing reversível a partir de uma quíntupla.")
+    parser.add_argument("arquivo", type=Path, help="arquivo .txt com a quíntupla e a entrada")
+    parser.add_argument("--max-steps", type=int, default=10000, help="limite de passos (padrão: 10000)")
+    args = parser.parse_args()
 
-    final_states = {states[3]}
+    input_string, initial_state, states, transitions, final_states = load_quintupla(args.arquivo)
+    machine = TuringMachineReversive(input_string, initial_state, states, transitions, final_states)
     
-    machine = TuringMachineReversive("abc", states[0], states, transitions, final_states)
-
-    print("Antes:", machine.get_tape_contents())
     while not machine.has_finished():
         machine.step()
         print("Passo:", machine.phase, machine.get_tape_contents())
 
-    print("Depois:", machine.get_tape_contents())
+    print("Fase atual:", machine.phase.name)
     print("Estado atual:", machine.state.name)
-    print("Fase atual:", machine.phase)
-    print("Terminou a computação?", machine.has_finished())
     print("Foi aceita?", machine.is_accepted())
+    print("Fitas:", machine.get_tape_contents())
