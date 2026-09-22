@@ -150,22 +150,18 @@ class TuringMachineReversive:
             self.phase = MachinePhase.HALT
             return False
 
-        while self.tape1.read() is None:
-            self.tape1.move_left()
-
-        while self.tape2.read() is None:
-            self.tape2.move_left()
-
         record = self.tape2.read()
 
         if isinstance(record, int):
             transition = self.transitions[record]
-            self.state = transition.next_state
-            self.tape1.write(transition.read)
+            # Desfaz primeiro o movimento, depois a escrita e a troca de estado.
             self._move_tape(self.tape1, -transition.move)
+            self.tape1.write(transition.read)
+            self.state = transition.state
         else:
             raise ValueError(f"registro de histórico inválido: {record!r}")
 
+        self.tape2.write(None)
         self.tape2.move_left()
         self._history_tokens -= 1
         if self._history_tokens == 0:
