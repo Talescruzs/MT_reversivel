@@ -8,7 +8,7 @@
   * Na primeira, a máquina original é executada na fita de trabalho e, a cada passo, a transição aplicada é registrada na fita de histórico.
   * Na segunda, o resultado é copiado para a fita de saída.
   * Na terceira, o histórico é percorrido em ordem inversa cada transição é desfeita, sendo seu registro removido.
-  * 
+    
   Ao final, a fita de trabalho contém novamente a entrada original, a fita de histórico vazia e a fita de saída contém o resultado, sem nenhuma informação perdida. O custo é o espaço adicional necessário para armazenar o histórico durante a execução. A máquina do 'entrada-quíntupla.txt' reconhece palavras com a mesma quantidade de símbolos 0 e 1. Para a entrada 0011, a primeira etapa executa 15 transições, deixa a fita de trabalho com conteúdo $XXX e registra 15 entradas no histórico.  Na segunda etapa, esse conteúdo é copiado para a fita de saída. Na terceira, as 15 transições são desfeitas. A fita de trabalho retorna ao conteúdo original 0011 e a palavra é aceita.
 
 ## Sobre o código
